@@ -54,7 +54,7 @@ export const defaultOptions: Options = {
 	renderHeaders: true,
 
 	trimXmlDeclaration: true,
-	useBase64URL: false,
+	useBase64URL: true,
 
 	debug: false,
 	experimental: false,
@@ -74,23 +74,104 @@ export async function renderDocument(document: any, bodyContainer: HTMLElement, 
 	const ops = { ...defaultOptions, ...userOptions };
 	// HTML渲染器实例
 	const renderer = sync ? new HtmlRendererSync() : new HtmlRenderer();
+	// Asociar el renderer con el documento para limpieza posterior
+	if (document && typeof document.setRenderer === 'function') {
+		document.setRenderer(renderer);
+	}
 	// Object对象 => HTML标签
 	await renderer.render(document, bodyContainer, styleContainer, ops);
 }
 
+// Mapa para trackear documentos asociados con contenedores para auto-dispose
+const containerDocumentMap = new WeakMap<HTMLElement, any>();
+
+// Mapa para prevenir renderizados concurrentes en el mismo contenedor
+const containerRenderingLock = new WeakMap<HTMLElement, Promise<any>>();
+
 // Render Synchronously
 export async function renderSync(data: Blob | any, bodyContainer: HTMLElement, styleContainer: HTMLElement = null, userOptions: Partial<Options> = null): Promise<any> {
-	// parse document data
-	const doc = await parseAsync(data, userOptions);
-	// render document
-	await renderDocument(doc, bodyContainer, styleContainer, true, userOptions);
+	// Verificar si ya hay un renderizado en progreso para este contenedor
+	const currentRendering = containerRenderingLock.get(bodyContainer);
+	if (currentRendering) {
+		// Esperar a que termine el renderizado actual antes de continuar
+		await currentRendering;
+	}
 
-	return doc;
+	// Crear una promesa para este renderizado y guardarla en el lock
+	const renderingPromise = (async () => {
+		try {
+			// Limpiar contenedores antes de renderizar para evitar fugas de memoria
+			bodyContainer.innerHTML = '';
+			if (styleContainer) {
+				styleContainer.innerHTML = '';
+			}
+
+			// Llamar dispose en documento anterior si existe
+			const previousDoc = containerDocumentMap.get(bodyContainer);
+			if (previousDoc && typeof previousDoc.dispose === 'function') {
+				previousDoc.dispose();
+			}
+
+			// parse document data
+			const doc = await parseAsync(data, userOptions);
+			// render document
+			await renderDocument(doc, bodyContainer, styleContainer, true, userOptions);
+
+			// Trackear el documento actual para auto-dispose en futuras renderizaciones
+			containerDocumentMap.set(bodyContainer, doc);
+
+			return doc;
+		} finally {
+			// Remover el lock cuando termine
+			containerRenderingLock.delete(bodyContainer);
+		}
+	})();
+
+	// Guardar la promesa en el lock
+	containerRenderingLock.set(bodyContainer, renderingPromise);
+
+	return renderingPromise;
 }
 
 // Render Asynchronously
 export async function renderAsync(data: Blob | any, bodyContainer: HTMLElement, styleContainer?: HTMLElement, userOptions?: Partial<Options>): Promise<any> {
-	const doc = await parseAsync(data, userOptions);
-	await renderDocument(doc, bodyContainer, styleContainer, false, userOptions);
-	return doc;
+	// Verificar si ya hay un renderizado en progreso para este contenedor
+	const currentRendering = containerRenderingLock.get(bodyContainer);
+	if (currentRendering) {
+		// Esperar a que termine el renderizado actual antes de continuar
+		await currentRendering;
+	}
+
+	// Crear una promesa para este renderizado y guardarla en el lock
+	const renderingPromise = (async () => {
+		try {
+			// Limpiar contenedores antes de renderizar para evitar fugas de memoria
+			bodyContainer.innerHTML = '';
+			if (styleContainer) {
+				styleContainer.innerHTML = '';
+			}
+
+			// Llamar dispose en documento anterior si existe
+			const previousDoc = containerDocumentMap.get(bodyContainer);
+			if (previousDoc && typeof previousDoc.dispose === 'function') {
+				previousDoc.dispose();
+			}
+
+			const doc = await parseAsync(data, userOptions);
+			await renderDocument(doc, bodyContainer, styleContainer, false, userOptions);
+
+			// Trackear el documento actual para auto-dispose en futuras renderizaciones
+			containerDocumentMap.set(bodyContainer, doc);
+
+			return doc;
+		} finally {
+			// Remover el lock cuando termine
+			containerRenderingLock.delete(bodyContainer);
+		}
+	})();
+
+	// Guardar la promesa en el lock
+	containerRenderingLock.set(bodyContainer, renderingPromise);
+
+	return renderingPromise;
 }

@@ -100,6 +100,9 @@ export class HtmlRendererSync {
 	// Konva框架--layer元素
 	konva_layer: Layer;
 
+	// Lista de URLs creados con createObjectURL que necesitan ser revocados
+	private createdObjectURLs: string[] = [];
+
 	/**
 	 * Object对象 => HTML标签
 	 *
@@ -2440,6 +2443,8 @@ export class HtmlRendererSync {
 		} else {
 			const blob = (await group.toBlob()) as Blob;
 			result = URL.createObjectURL(blob);
+			// Trackear el URL creado para poder revocarlo después
+			this.createdObjectURLs.push(result);
 		}
 
 
@@ -2931,6 +2936,71 @@ export class HtmlRendererSync {
 		for (const tab of this.currentTabs) {
 			updateTabStop(tab.span, tab.stops, this.defaultTabSize, this.pointToPixelRatio);
 		}
+	}
+
+	// Liberar recursos creados durante el renderizado
+	dispose() {
+		// Limpiar objetos de Konva para liberar memoria
+		if (this.konva_layer) {
+			this.konva_layer.removeChildren();
+			this.konva_layer.destroy();
+			this.konva_layer = null;
+		}
+		if (this.konva_stage) {
+			this.konva_stage.destroy();
+			this.konva_stage = null;
+		}
+
+		// Revocar todos los URLs de objetos creados para liberar memoria
+		for (const url of this.createdObjectURLs) {
+			try {
+				URL.revokeObjectURL(url);
+			} catch (e) {
+				// Ignorar errores si el URL ya fue revocado
+			}
+		}
+		this.createdObjectURLs = [];
+
+		// Limpiar elementos del DOM creados durante el renderizado
+		if (this.wrapper && this.wrapper !== this.bodyContainer) {
+			// Si wrapper es diferente del bodyContainer, eliminar todos sus hijos
+			while (this.wrapper.firstChild) {
+				this.wrapper.removeChild(this.wrapper.firstChild);
+			}
+		}
+
+		// Limpiar el contenedor de Konva si existe
+		const konvaContainer = document.getElementById('konva-container');
+		if (konvaContainer) {
+			konvaContainer.remove();
+		}
+
+		// Limpiar referencias a elementos del DOM para evitar fugas de memoria
+		this.bodyContainer = null;
+		this.wrapper = null;
+
+		// Limpiar referencias a objetos del documento
+		this.document = null;
+		this.options = null;
+		this.styleMap = null;
+
+		// Limpiar referencias de páginas y elementos actuales
+		this.currentPage = null;
+		this.currentPart = null;
+
+		// Limpiar arrays y mapas
+		this.tableVerticalMerges = [];
+		this.currentVerticalMerge = null;
+		this.tableCellPositions = [];
+		this.currentCellPosition = null;
+
+		this.footnoteMap = {};
+		this.endnoteMap = {};
+		this.currentFootnoteIds = [];
+		this.currentEndnoteIds = [];
+		this.usedHeaderFooterParts = [];
+
+		this.currentTabs = [];
 	}
 }
 

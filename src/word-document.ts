@@ -48,6 +48,12 @@ export class WordDocument {
 	settingsPart: SettingsPart;
 	commentsPart: CommentsPart;
 
+	// Lista de URLs creados con createObjectURL que necesitan ser revocados
+	private createdObjectURLs: string[] = [];
+
+	// Renderer actual para limpieza
+	private _renderer: any = null;
+
 	static async load(blob: Blob | any, parser: DocumentParser, options: any): Promise<WordDocument> {
 		var d = new WordDocument();
 
@@ -67,6 +73,51 @@ export class WordDocument {
 
 	save(type = "blob"): Promise<any> {
 		return this._package.save(type);
+	}
+
+	// Establecer el renderer para limpieza posterior
+	setRenderer(renderer: any) {
+		this._renderer = renderer;
+	}
+
+	dispose() {
+		// Limpiar referencia al renderer primero para romper el ciclo
+		const renderer = this._renderer;
+		this._renderer = null;
+
+		// Liberar el renderer si existe
+		if (renderer && typeof renderer.dispose === 'function') {
+			renderer.dispose();
+		}
+
+		// Revocar todos los URLs de objetos creados para liberar memoria
+		for (const url of this.createdObjectURLs) {
+			try {
+				URL.revokeObjectURL(url);
+			} catch (e) {
+				// Ignorar errores si el URL ya fue revocado
+			}
+		}
+		this.createdObjectURLs = [];
+
+		// Nullify references to free memory
+		this._package = null;
+		this._parser = null;
+		this._options = null;
+		this.rels = null;
+		this.parts = null;
+		this.partsMap = null;
+		this.documentPart = null;
+		this.fontTablePart = null;
+		this.numberingPart = null;
+		this.stylesPart = null;
+		this.footnotesPart = null;
+		this.endnotesPart = null;
+		this.themePart = null;
+		this.corePropsPart = null;
+		this.extendedPropsPart = null;
+		this.settingsPart = null;
+		this.commentsPart = null;
 	}
 
 	private async loadRelationshipPart(path: string, type: string): Promise<Part> {
@@ -164,7 +215,7 @@ export class WordDocument {
 
 	async loadFont(id: string, key: string): Promise<string> {
 		const x = await this.loadResource(this.fontTablePart, id, "uint8array");
-		return x ? this.blobToURL(new Blob([deobfuscate(x, key)])) : x;
+		return x ? this.blobToURL(new Blob([deobfuscate(x, key) as any])) : x;
 	}
 
 	private blobToURL(blob: Blob): string | Promise<string> {
@@ -175,7 +226,10 @@ export class WordDocument {
 			return blobToBase64(blob);
 		}
 
-		return URL.createObjectURL(blob);
+		const url = URL.createObjectURL(blob);
+		// Trackear el URL creado para poder revocarlo después
+		this.createdObjectURLs.push(url);
+		return url;
 	}
 
 	findPartByRelId(id: string, documentPart: Part = null) {
@@ -196,10 +250,12 @@ export class WordDocument {
 		// TODO 暂时使用文件扩展名推断MIME类型，实际上并不准确
 		let type = mime.getType(path);
 		if (path) {
-			// 图片类型在读取过程中丢失，jszip包的缺陷
-			let origin_blob = await this._package.load(path, outputType);
-			// 修改Blob中的type类型
-			return new Blob([origin_blob], { type });
+			if (outputType === "blob") {
+				let data = await this._package.load(path, "uint8array");
+				return new Blob([data], { type });
+			} else {
+				return await this._package.load(path, outputType);
+			}
 		} else {
 			return Promise.resolve(null);
 		}
