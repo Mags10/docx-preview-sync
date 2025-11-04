@@ -1906,7 +1906,12 @@
     };
     class DocumentParser {
         constructor(options) {
+            this.styleCache = new WeakMap();
             this.options = Object.assign(Object.assign({}, defaultDocumentParserOptions), options);
+        }
+        dispose() {
+            this.styleCache = new WeakMap();
+            this.options = null;
         }
         parseDocumentFile(xmlDoc) {
             let documentElement = {
@@ -1958,6 +1963,10 @@
             return children;
         }
         parseStylesFile(xstyles) {
+            let cached = this.styleCache.get(xstyles);
+            if (cached) {
+                return cached;
+            }
             let result = [];
             xmlUtil.foreach(xstyles, n => {
                 switch (n.localName) {
@@ -1973,6 +1982,7 @@
                         }
                 }
             });
+            this.styleCache.set(xstyles, result);
             return result;
         }
         parseDefaultStyles(node) {
@@ -5086,6 +5096,37 @@
                     updateTabStop(tab.span, tab.stops, this.defaultTabSize, pixelToPoint);
                 }
             }, 500);
+        }
+        dispose() {
+            if (this.konva_stage) {
+                this.konva_stage.destroy();
+                this.konva_stage = null;
+            }
+            if (this.konva_layer) {
+                this.konva_layer.destroy();
+                this.konva_layer = null;
+            }
+            if (this.tabsTimeout) {
+                clearTimeout(this.tabsTimeout);
+                this.tabsTimeout = null;
+            }
+            this.document = null;
+            this.options = null;
+            this.styleMap = null;
+            this.currentPart = null;
+            this.wrapper = null;
+            this.currentPage = null;
+            this.tableVerticalMerges = [];
+            this.currentVerticalMerge = null;
+            this.tableCellPositions = [];
+            this.currentCellPosition = null;
+            this.footnoteMap = {};
+            this.endnoteMap = {};
+            this.currentFootnoteIds = [];
+            this.currentEndnoteIds = [];
+            this.usedHederFooterParts = [];
+            this.defaultTabSize = null;
+            this.currentTabs = [];
         }
     }
     function createElement$1(tagName, props, children) {
