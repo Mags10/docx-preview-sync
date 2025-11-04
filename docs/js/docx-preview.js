@@ -1571,6 +1571,9 @@
             if (renderer && typeof renderer.dispose === 'function') {
                 renderer.dispose();
             }
+            if (this._parser && typeof this._parser.dispose === 'function') {
+                this._parser.dispose();
+            }
             for (const url of this.createdObjectURLs) {
                 try {
                     URL.revokeObjectURL(url);
@@ -1579,12 +1582,6 @@
                 }
             }
             this.createdObjectURLs = [];
-            this._package = null;
-            this._parser = null;
-            this._options = null;
-            this.rels = null;
-            this.parts = null;
-            this.partsMap = null;
             this.documentPart = null;
             this.fontTablePart = null;
             this.numberingPart = null;
@@ -1596,6 +1593,12 @@
             this.extendedPropsPart = null;
             this.settingsPart = null;
             this.commentsPart = null;
+            this.parts = null;
+            this.partsMap = null;
+            this.rels = null;
+            this._package = null;
+            this._parser = null;
+            this._options = null;
         }
         loadRelationshipPart(path, type) {
             return __awaiter(this, void 0, void 0, function* () {
@@ -7326,6 +7329,36 @@
     }
     const containerDocumentMap = new WeakMap();
     const containerRenderingLock = new WeakMap();
+    function performCompleteCleanup(bodyContainer_1) {
+        return __awaiter(this, arguments, void 0, function* (bodyContainer, styleContainer = null) {
+            if (typeof window !== 'undefined' && window.gc) {
+                window.gc();
+            }
+            bodyContainer.innerHTML = '';
+            if (styleContainer) {
+                styleContainer.innerHTML = '';
+            }
+            const previousDoc = containerDocumentMap.get(bodyContainer);
+            if (previousDoc && typeof previousDoc.dispose === 'function') {
+                previousDoc.dispose();
+            }
+            containerDocumentMap.delete(bodyContainer);
+            containerRenderingLock.delete(bodyContainer);
+            if (bodyContainer.hasAttribute && bodyContainer.removeAttribute) {
+                const dataAttrs = bodyContainer.attributes;
+                for (let i = dataAttrs.length - 1; i >= 0; i--) {
+                    const attr = dataAttrs[i];
+                    if (attr.name.startsWith('data-docx') || attr.name.startsWith('data-')) {
+                        bodyContainer.removeAttribute(attr.name);
+                    }
+                }
+            }
+            if (typeof window !== 'undefined' && window.gc) {
+                window.gc();
+            }
+            yield new Promise(resolve => setTimeout(resolve, 0));
+        });
+    }
     function renderSync(data_1, bodyContainer_1) {
         return __awaiter(this, arguments, void 0, function* (data, bodyContainer, styleContainer = null, userOptions = null) {
             const currentRendering = containerRenderingLock.get(bodyContainer);
@@ -7334,14 +7367,7 @@
             }
             const renderingPromise = (() => __awaiter(this, void 0, void 0, function* () {
                 try {
-                    bodyContainer.innerHTML = '';
-                    if (styleContainer) {
-                        styleContainer.innerHTML = '';
-                    }
-                    const previousDoc = containerDocumentMap.get(bodyContainer);
-                    if (previousDoc && typeof previousDoc.dispose === 'function') {
-                        previousDoc.dispose();
-                    }
+                    yield performCompleteCleanup(bodyContainer, styleContainer);
                     const doc = yield parseAsync(data, userOptions);
                     yield renderDocument(doc, bodyContainer, styleContainer, true, userOptions);
                     containerDocumentMap.set(bodyContainer, doc);
@@ -7363,14 +7389,7 @@
             }
             const renderingPromise = (() => __awaiter(this, void 0, void 0, function* () {
                 try {
-                    bodyContainer.innerHTML = '';
-                    if (styleContainer) {
-                        styleContainer.innerHTML = '';
-                    }
-                    const previousDoc = containerDocumentMap.get(bodyContainer);
-                    if (previousDoc && typeof previousDoc.dispose === 'function') {
-                        previousDoc.dispose();
-                    }
+                    yield performCompleteCleanup(bodyContainer, styleContainer);
                     const doc = yield parseAsync(data, userOptions);
                     yield renderDocument(doc, bodyContainer, styleContainer, false, userOptions);
                     containerDocumentMap.set(bodyContainer, doc);

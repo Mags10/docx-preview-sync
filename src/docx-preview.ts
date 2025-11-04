@@ -88,6 +88,50 @@ const containerDocumentMap = new WeakMap<HTMLElement, any>();
 // Mapa para prevenir renderizados concurrentes en el mismo contenedor
 const containerRenderingLock = new WeakMap<HTMLElement, Promise<any>>();
 
+// Función para limpieza completa de memoria antes de refresh
+async function performCompleteCleanup(bodyContainer: HTMLElement, styleContainer: HTMLElement = null): Promise<void> {
+	// PASO 1: Forzar recolección de basura antes de limpiar (si está disponible)
+	if (typeof window !== 'undefined' && (window as any).gc) {
+		(window as any).gc();
+	}
+
+	// PASO 2: Limpiar contenedores HTML (esto elimina elementos DOM)
+	bodyContainer.innerHTML = '';
+	if (styleContainer) {
+		styleContainer.innerHTML = '';
+	}
+
+	// PASO 3: Llamar dispose en documento anterior si existe
+	const previousDoc = containerDocumentMap.get(bodyContainer);
+	if (previousDoc && typeof previousDoc.dispose === 'function') {
+		previousDoc.dispose();
+	}
+
+	// PASO 4: Limpiar todas las referencias de WeakMaps para este contenedor
+	containerDocumentMap.delete(bodyContainer);
+	containerRenderingLock.delete(bodyContainer);
+
+	// PASO 5: Limpiar cualquier atributo data o referencias que puedan quedar en el contenedor
+	if (bodyContainer.hasAttribute && bodyContainer.removeAttribute) {
+		// Remover cualquier atributo data-docx que pueda haber sido agregado
+		const dataAttrs = bodyContainer.attributes;
+		for (let i = dataAttrs.length - 1; i >= 0; i--) {
+			const attr = dataAttrs[i];
+			if (attr.name.startsWith('data-docx') || attr.name.startsWith('data-')) {
+				bodyContainer.removeAttribute(attr.name);
+			}
+		}
+	}
+
+	// PASO 6: Forzar otra recolección de basura después de la limpieza
+	if (typeof window !== 'undefined' && (window as any).gc) {
+		(window as any).gc();
+	}
+
+	// PASO 7: Pequeña pausa para permitir que el navegador procese la limpieza
+	await new Promise(resolve => setTimeout(resolve, 0));
+}
+
 // Render Synchronously
 export async function renderSync(data: Blob | any, bodyContainer: HTMLElement, styleContainer: HTMLElement = null, userOptions: Partial<Options> = null): Promise<any> {
 	// Verificar si ya hay un renderizado en progreso para este contenedor
@@ -100,17 +144,8 @@ export async function renderSync(data: Blob | any, bodyContainer: HTMLElement, s
 	// Crear una promesa para este renderizado y guardarla en el lock
 	const renderingPromise = (async () => {
 		try {
-			// Limpiar contenedores antes de renderizar para evitar fugas de memoria
-			bodyContainer.innerHTML = '';
-			if (styleContainer) {
-				styleContainer.innerHTML = '';
-			}
-
-			// Llamar dispose en documento anterior si existe
-			const previousDoc = containerDocumentMap.get(bodyContainer);
-			if (previousDoc && typeof previousDoc.dispose === 'function') {
-				previousDoc.dispose();
-			}
+			// PASO 1: Limpieza completa antes de renderizar
+			await performCompleteCleanup(bodyContainer, styleContainer);
 
 			// parse document data
 			const doc = await parseAsync(data, userOptions);
@@ -145,17 +180,8 @@ export async function renderAsync(data: Blob | any, bodyContainer: HTMLElement, 
 	// Crear una promesa para este renderizado y guardarla en el lock
 	const renderingPromise = (async () => {
 		try {
-			// Limpiar contenedores antes de renderizar para evitar fugas de memoria
-			bodyContainer.innerHTML = '';
-			if (styleContainer) {
-				styleContainer.innerHTML = '';
-			}
-
-			// Llamar dispose en documento anterior si existe
-			const previousDoc = containerDocumentMap.get(bodyContainer);
-			if (previousDoc && typeof previousDoc.dispose === 'function') {
-				previousDoc.dispose();
-			}
+			// PASO 1: Limpieza completa antes de renderizar
+			await performCompleteCleanup(bodyContainer, styleContainer);
 
 			const doc = await parseAsync(data, userOptions);
 			await renderDocument(doc, bodyContainer, styleContainer, false, userOptions);

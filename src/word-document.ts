@@ -81,16 +81,21 @@ export class WordDocument {
 	}
 
 	dispose() {
-		// Limpiar referencia al renderer primero para romper el ciclo
+		// PASO 1: Limpiar referencia al renderer primero para romper el ciclo
 		const renderer = this._renderer;
 		this._renderer = null;
 
-		// Liberar el renderer si existe
+		// PASO 2: Liberar el renderer si existe (esto debería limpiar todas las referencias DOM)
 		if (renderer && typeof renderer.dispose === 'function') {
 			renderer.dispose();
 		}
 
-		// Revocar todos los URLs de objetos creados para liberar memoria
+		// PASO 3: Liberar el parser si tiene método dispose
+		if (this._parser && typeof this._parser.dispose === 'function') {
+			this._parser.dispose();
+		}
+
+		// PASO 4: Revocar todos los URLs de objetos creados para liberar memoria
 		for (const url of this.createdObjectURLs) {
 			try {
 				URL.revokeObjectURL(url);
@@ -100,13 +105,7 @@ export class WordDocument {
 		}
 		this.createdObjectURLs = [];
 
-		// Nullify references to free memory
-		this._package = null;
-		this._parser = null;
-		this._options = null;
-		this.rels = null;
-		this.parts = null;
-		this.partsMap = null;
+		// PASO 5: Limpiar todas las referencias de partes específicas
 		this.documentPart = null;
 		this.fontTablePart = null;
 		this.numberingPart = null;
@@ -118,6 +117,16 @@ export class WordDocument {
 		this.extendedPropsPart = null;
 		this.settingsPart = null;
 		this.commentsPart = null;
+
+		// PASO 6: Limpiar arrays y mapas
+		this.parts = null;
+		this.partsMap = null;
+		this.rels = null;
+
+		// PASO 7: Limpiar referencias al package y parser
+		this._package = null;
+		this._parser = null;
+		this._options = null;
 	}
 
 	private async loadRelationshipPart(path: string, type: string): Promise<Part> {
