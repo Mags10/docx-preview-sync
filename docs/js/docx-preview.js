@@ -37,7 +37,7 @@
     OTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR
     PERFORMANCE OF THIS SOFTWARE.
     ***************************************************************************** */
-    /* global Reflect, Promise, SuppressedError, Symbol */
+    /* global Reflect, Promise, SuppressedError, Symbol, Iterator */
 
 
     function __awaiter(thisArg, _arguments, P, generator) {
@@ -181,12 +181,7 @@
     }
 
     const ns$2 = {
-        wordml: "http://schemas.openxmlformats.org/wordprocessingml/2006/main",
-        drawingml: "http://schemas.openxmlformats.org/drawingml/2006/main",
-        picture: "http://schemas.openxmlformats.org/drawingml/2006/picture",
-        compatibility: "http://schemas.openxmlformats.org/markup-compatibility/2006",
-        math: "http://schemas.openxmlformats.org/officeDocument/2006/math"
-    };
+        wordml: "http://schemas.openxmlformats.org/wordprocessingml/2006/main"};
     const LengthUsage = {
         Px: { mul: 1 / 9525, unit: "px" },
         Dxa: { mul: 1 / 20, unit: "pt" },
@@ -196,9 +191,7 @@
         Point: { mul: 1, unit: "pt" },
         RelativeRect: { mul: 1 / 100000, unit: "" },
         TablePercent: { mul: 0.02, unit: "%" },
-        LineHeight: { mul: 1 / 240, unit: "" },
         Opacity: { mul: 1 / 100000, unit: "" },
-        VmlEmu: { mul: 1 / 12700, unit: "" },
         degree: { mul: 1 / 60000, unit: "deg" },
     };
     function convertLength(val, usage = LengthUsage.Dxa, unit = true) {
@@ -467,25 +460,62 @@
     }
 
     class OpenXmlPackage {
-        constructor(_zip, options) {
-            this._zip = _zip;
+        constructor(options) {
             this.options = options;
             this.xmlParser = new XmlParser();
+            this._files = {};
+            this._zip = null;
+        }
+        loadAllFiles(zip) {
+            return __awaiter(this, void 0, void 0, function* () {
+                const files = zip.files;
+                const promises = Object.keys(files).map((path) => __awaiter(this, void 0, void 0, function* () {
+                    const file = files[path];
+                    if (!file.dir) {
+                        this._files[normalizePath(path)] = yield file.async('uint8array');
+                    }
+                }));
+                yield Promise.all(promises);
+            });
         }
         get(path) {
-            return this._zip.files[normalizePath(path)];
+            return this._files[normalizePath(path)] ? { async: (type) => Promise.resolve(this.convertData(this._files[normalizePath(path)], type)) } : null;
+        }
+        convertData(data, type) {
+            switch (type) {
+                case 'uint8array':
+                    return data;
+                case 'string':
+                    return new TextDecoder().decode(data);
+                case 'blob':
+                    return new Blob([data]);
+                default:
+                    return data;
+            }
         }
         update(path, content) {
-            this._zip.file(path, content);
+            if (this._zip) {
+                this._zip.file(path, content);
+            }
         }
         static load(input, options) {
             return __awaiter(this, void 0, void 0, function* () {
-                const zip = yield JSZip.loadAsync(input);
-                return new OpenXmlPackage(zip, options);
+                let arrayBuffer;
+                if (input instanceof Blob) {
+                    arrayBuffer = yield input.arrayBuffer();
+                }
+                else {
+                    arrayBuffer = input;
+                }
+                const zip = yield JSZip.loadAsync(arrayBuffer);
+                const pkg = new OpenXmlPackage(options);
+                pkg._zip = zip;
+                yield pkg.loadAllFiles(zip);
+                return pkg;
             });
         }
         save(type = "blob") {
-            return this._zip.generateAsync({ type });
+            return this._zip ? this._zip.generateAsync({ type }) : Promise.reject(new Error("Zip not loaded"));
         }
         load(path, type = "string") {
             var _a, _b;
@@ -1511,6 +1541,8 @@
         constructor() {
             this.parts = [];
             this.partsMap = {};
+            this.createdObjectURLs = [];
+            this._renderer = null;
         }
         static load(blob, parser, options) {
             return __awaiter(this, void 0, void 0, function* () {
@@ -1529,6 +1561,41 @@
         }
         save(type = "blob") {
             return this._package.save(type);
+        }
+        setRenderer(renderer) {
+            this._renderer = renderer;
+        }
+        dispose() {
+            const renderer = this._renderer;
+            this._renderer = null;
+            if (renderer && typeof renderer.dispose === 'function') {
+                renderer.dispose();
+            }
+            for (const url of this.createdObjectURLs) {
+                try {
+                    URL.revokeObjectURL(url);
+                }
+                catch (e) {
+                }
+            }
+            this.createdObjectURLs = [];
+            this._package = null;
+            this._parser = null;
+            this._options = null;
+            this.rels = null;
+            this.parts = null;
+            this.partsMap = null;
+            this.documentPart = null;
+            this.fontTablePart = null;
+            this.numberingPart = null;
+            this.stylesPart = null;
+            this.footnotesPart = null;
+            this.endnotesPart = null;
+            this.themePart = null;
+            this.corePropsPart = null;
+            this.extendedPropsPart = null;
+            this.settingsPart = null;
+            this.commentsPart = null;
         }
         loadRelationshipPart(path, type) {
             return __awaiter(this, void 0, void 0, function* () {
@@ -1618,7 +1685,9 @@
             if (this._options.useBase64URL) {
                 return blobToBase64(blob);
             }
-            return URL.createObjectURL(blob);
+            const url = URL.createObjectURL(blob);
+            this.createdObjectURLs.push(url);
+            return url;
         }
         findPartByRelId(id, documentPart = null) {
             var _a;
@@ -1636,8 +1705,13 @@
                 const path = this.getPathById(part, id);
                 let type = mime.getType(path);
                 if (path) {
-                    let origin_blob = yield this._package.load(path, outputType);
-                    return new Blob([origin_blob], { type });
+                    if (outputType === "blob") {
+                        let data = yield this._package.load(path, "uint8array");
+                        return new Blob([data], { type });
+                    }
+                    else {
+                        return yield this._package.load(path, outputType);
+                    }
                 }
                 else {
                     return Promise.resolve(null);
@@ -3933,7 +4007,6 @@
     }
 
     const ns$1 = {
-        html: 'http://www.w3.org/1999/xhtml',
         svg: 'http://www.w3.org/2000/svg',
         mathML: 'http://www.w3.org/1998/Math/MathML',
     };
@@ -5049,7 +5122,6 @@
     }
 
     const ns = {
-        html: 'http://www.w3.org/1999/xhtml',
         svg: 'http://www.w3.org/2000/svg',
         mathML: 'http://www.w3.org/1998/Math/MathML',
     };
@@ -5077,6 +5149,7 @@
             this.currentEndnoteIds = [];
             this.usedHeaderFooterParts = [];
             this.currentTabs = [];
+            this.createdObjectURLs = [];
         }
         render(document_1, bodyContainer_1) {
             return __awaiter(this, arguments, void 0, function* (document, bodyContainer, styleContainer = null, options) {
@@ -6614,6 +6687,7 @@
                 else {
                     const blob = (yield group.toBlob());
                     result = URL.createObjectURL(blob);
+                    this.createdObjectURLs.push(result);
                 }
                 return result;
             });
@@ -6996,6 +7070,51 @@
                 updateTabStop(tab.span, tab.stops, this.defaultTabSize, this.pointToPixelRatio);
             }
         }
+        dispose() {
+            if (this.konva_layer) {
+                this.konva_layer.removeChildren();
+                this.konva_layer.destroy();
+                this.konva_layer = null;
+            }
+            if (this.konva_stage) {
+                this.konva_stage.destroy();
+                this.konva_stage = null;
+            }
+            for (const url of this.createdObjectURLs) {
+                try {
+                    URL.revokeObjectURL(url);
+                }
+                catch (e) {
+                }
+            }
+            this.createdObjectURLs = [];
+            if (this.wrapper && this.wrapper !== this.bodyContainer) {
+                while (this.wrapper.firstChild) {
+                    this.wrapper.removeChild(this.wrapper.firstChild);
+                }
+            }
+            const konvaContainer = document.getElementById('konva-container');
+            if (konvaContainer) {
+                konvaContainer.remove();
+            }
+            this.bodyContainer = null;
+            this.wrapper = null;
+            this.document = null;
+            this.options = null;
+            this.styleMap = null;
+            this.currentPage = null;
+            this.currentPart = null;
+            this.tableVerticalMerges = [];
+            this.currentVerticalMerge = null;
+            this.tableCellPositions = [];
+            this.currentCellPosition = null;
+            this.footnoteMap = {};
+            this.endnoteMap = {};
+            this.currentFootnoteIds = [];
+            this.currentEndnoteIds = [];
+            this.usedHeaderFooterParts = [];
+            this.currentTabs = [];
+        }
     }
     function createElement(tagName, props) {
         return createElementNS(null, tagName, props);
@@ -7146,7 +7265,7 @@
         renderFootnotes: true,
         renderHeaders: true,
         trimXmlDeclaration: true,
-        useBase64URL: false,
+        useBase64URL: true,
         debug: false,
         experimental: false,
     };
@@ -7158,21 +7277,70 @@
         return __awaiter(this, arguments, void 0, function* (document, bodyContainer, styleContainer, sync = true, userOptions) {
             const ops = Object.assign(Object.assign({}, defaultOptions), userOptions);
             const renderer = sync ? new HtmlRendererSync() : new HtmlRenderer();
+            if (document && typeof document.setRenderer === 'function') {
+                document.setRenderer(renderer);
+            }
             yield renderer.render(document, bodyContainer, styleContainer, ops);
         });
     }
+    const containerDocumentMap = new WeakMap();
+    const containerRenderingLock = new WeakMap();
     function renderSync(data_1, bodyContainer_1) {
         return __awaiter(this, arguments, void 0, function* (data, bodyContainer, styleContainer = null, userOptions = null) {
-            const doc = yield parseAsync(data, userOptions);
-            yield renderDocument(doc, bodyContainer, styleContainer, true, userOptions);
-            return doc;
+            const currentRendering = containerRenderingLock.get(bodyContainer);
+            if (currentRendering) {
+                yield currentRendering;
+            }
+            const renderingPromise = (() => __awaiter(this, void 0, void 0, function* () {
+                try {
+                    bodyContainer.innerHTML = '';
+                    if (styleContainer) {
+                        styleContainer.innerHTML = '';
+                    }
+                    const previousDoc = containerDocumentMap.get(bodyContainer);
+                    if (previousDoc && typeof previousDoc.dispose === 'function') {
+                        previousDoc.dispose();
+                    }
+                    const doc = yield parseAsync(data, userOptions);
+                    yield renderDocument(doc, bodyContainer, styleContainer, true, userOptions);
+                    containerDocumentMap.set(bodyContainer, doc);
+                    return doc;
+                }
+                finally {
+                    containerRenderingLock.delete(bodyContainer);
+                }
+            }))();
+            containerRenderingLock.set(bodyContainer, renderingPromise);
+            return renderingPromise;
         });
     }
     function renderAsync(data, bodyContainer, styleContainer, userOptions) {
         return __awaiter(this, void 0, void 0, function* () {
-            const doc = yield parseAsync(data, userOptions);
-            yield renderDocument(doc, bodyContainer, styleContainer, false, userOptions);
-            return doc;
+            const currentRendering = containerRenderingLock.get(bodyContainer);
+            if (currentRendering) {
+                yield currentRendering;
+            }
+            const renderingPromise = (() => __awaiter(this, void 0, void 0, function* () {
+                try {
+                    bodyContainer.innerHTML = '';
+                    if (styleContainer) {
+                        styleContainer.innerHTML = '';
+                    }
+                    const previousDoc = containerDocumentMap.get(bodyContainer);
+                    if (previousDoc && typeof previousDoc.dispose === 'function') {
+                        previousDoc.dispose();
+                    }
+                    const doc = yield parseAsync(data, userOptions);
+                    yield renderDocument(doc, bodyContainer, styleContainer, false, userOptions);
+                    containerDocumentMap.set(bodyContainer, doc);
+                    return doc;
+                }
+                finally {
+                    containerRenderingLock.delete(bodyContainer);
+                }
+            }))();
+            containerRenderingLock.set(bodyContainer, renderingPromise);
+            return renderingPromise;
         });
     }
 
