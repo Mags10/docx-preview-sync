@@ -321,6 +321,18 @@ export async function renderAsync(data: Blob | any, bodyContainer: HTMLElement, 
 // intentando reutilizar el renderer existente para evitar re-inicializaciones pesadas.
 // - newDocOrBlob: puede ser un WordDocument ya parseado o un Blob/raw como en renderAsync
 // - sync: si true usa el renderer síncrono (HtmlRendererSync), en caso contrario HtmlRenderer
+/**
+ * Reemplaza dinámicamente un documento en el contenedor, reutilizando opcionalmente el renderer existente.
+ * Esto es más eficiente que hacer un render completo desde cero cuando se necesita cambiar el contenido.
+ * 
+ * @param newDocOrBlob - Un documento ya parseado (WordDocument) o un Blob/File del .docx
+ * @param bodyContainer - Elemento HTML donde se renderizará
+ * @param styleContainer - Elemento donde se inyectarán los estilos (por defecto null)
+ * @param sync - Si true usa renderizador síncrono, si false usa asíncrono
+ * @param userOptions - Opciones de configuración personalizadas
+ * @returns Promise que se resuelve con el nuevo documento parseado
+ * @export
+ */
 export async function replaceParsedDocument(newDocOrBlob: WordDocument | Blob | any, bodyContainer: HTMLElement, styleContainer: HTMLElement = null, sync: boolean = true, userOptions?: Partial<Options>): Promise<any> {
 	// merge options
 	const ops = { ...defaultOptions, ...userOptions };
