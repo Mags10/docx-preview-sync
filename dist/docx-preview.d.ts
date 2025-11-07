@@ -31,3 +31,7 @@ export declare function praseAsync(data: Blob | any, userOptions?: Partial<Optio
 export declare function renderAsync(data: any, bodyContainer: HTMLElement, styleContainer?: HTMLElement, options?: Partial<Options>): Promise<any>;
 
 export declare function renderSync(data: any, bodyContainer: HTMLElement, styleContainer?: HTMLElement, options?: Partial<Options>): Promise<any>;
+
+export declare function replaceParsedDocument(data: any, bodyContainer: HTMLElement, styleContainer?: HTMLElement, sync?: boolean, options?: Partial<Options>): Promise<any>;
+
+export declare function getDebugStats(): any;
