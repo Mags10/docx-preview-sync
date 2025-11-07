@@ -18,6 +18,8 @@
       "ESNext",
       "DOM"
     ]
+    ,
+    "skipLibCheck": true
   },
   "exclude": [
     "node_modules"

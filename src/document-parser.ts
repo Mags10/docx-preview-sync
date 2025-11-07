@@ -70,12 +70,21 @@ export const defaultDocumentParserOptions: DocumentParserOptions = {
 
 export class DocumentParser {
 	options: DocumentParserOptions;
+	// Cache para estilos parseados usando WeakMap para evitar retenciones
+	private styleCache = new WeakMap<Element, IDomStyle[]>();
 
 	constructor(options?: Partial<DocumentParserOptions>) {
 		this.options = {
 			...defaultDocumentParserOptions,
 			...options
 		};
+	}
+
+	dispose() {
+		// Limpiar caché para liberar memoria
+		this.styleCache = new WeakMap<Element, IDomStyle[]>();
+		// Limpiar opciones para liberar memoria
+		this.options = null;
 	}
 
 	parseDocumentFile(xmlDoc: Element): DocumentElement {
@@ -146,6 +155,12 @@ export class DocumentParser {
 	}
 
 	parseStylesFile(xstyles: Element): IDomStyle[] {
+		// Verificar caché primero
+		let cached = this.styleCache.get(xstyles);
+		if (cached) {
+			return cached;
+		}
+
 		let result = [];
 
 		xmlUtil.foreach(xstyles, n => {
@@ -164,6 +179,8 @@ export class DocumentParser {
 			}
 		});
 
+		// Cachear el resultado
+		this.styleCache.set(xstyles, result);
 		return result;
 	}
 

@@ -24,6 +24,7 @@ import Konva from 'konva';
 import type { Stage } from 'konva/lib/Stage';
 import type { Layer } from 'konva/lib/Layer';
 import type { Group } from 'konva/lib/Group';
+import { debugStats } from './debug-stats';
 
 const ns = {
 	html: 'http://www.w3.org/1999/xhtml',
@@ -99,6 +100,17 @@ export class HtmlRendererSync {
 	konva_stage: Stage;
 	// Konva框架--layer元素
 	konva_layer: Layer;
+
+	// Lista de URLs creados con createObjectURL que necesitan ser revocados
+	private createdObjectURLs: string[] = [];
+
+	// Contar timeouts activos
+	private activeTimeouts: number = 0;
+
+	constructor() {
+		// contar instancia del renderer sync
+		debugStats.inc('rendererSyncInstances');
+	}
 
 	/**
 	 * Object对象 => HTML标签
@@ -2364,6 +2376,8 @@ export class HtmlRendererSync {
 		appendChildren(this.bodyContainer, oContainer);
 		// 创建Stage元素
 		this.konva_stage = new Konva.Stage({ container: 'konva-container' });
+		// contar konva stage creado
+		debugStats.inc('konvaStages');
 		// 创建Layer元素
 		this.konva_layer = new Konva.Layer({ listening: false });
 		// 添加Stage元素
@@ -2440,6 +2454,9 @@ export class HtmlRendererSync {
 		} else {
 			const blob = (await group.toBlob()) as Blob;
 			result = URL.createObjectURL(blob);
+			// Trackear el URL creado para poder revocarlo después
+			this.createdObjectURLs.push(result);
+			debugStats.inc('objectURLs');
 		}
 
 
@@ -2931,6 +2948,82 @@ export class HtmlRendererSync {
 		for (const tab of this.currentTabs) {
 			updateTabStop(tab.span, tab.stops, this.defaultTabSize, this.pointToPixelRatio);
 		}
+	}
+
+	// Liberar recursos creados durante el renderizado
+	dispose() {
+		// Limpiar objetos de Konva para liberar memoria
+		// DEBE hacerse ANTES de remover el contenedor del DOM
+		if (this.konva_stage) {
+			try {
+				this.konva_stage.destroy();
+				// decrementar contador de konva stages
+				debugStats.dec('konvaStages');
+			} catch (e) {
+				// ignore
+			}
+			this.konva_stage = null;
+		}
+
+		if (this.konva_layer) {
+			try {
+				this.konva_layer.removeChildren();
+				this.konva_layer.destroy();
+			} catch (e) {
+				// ignore
+			}
+			this.konva_layer = null;
+		}
+
+		// AHORA remover el contenedor del DOM (después de destruir el Stage)
+		const konvaContainer = document.getElementById('konva-container');
+		if (konvaContainer) {
+			try {
+				konvaContainer.remove();
+			} catch (e) {
+				// ignore
+			}
+		}
+
+		// Revocar todos los URLs de objetos creados para liberar memoria
+		for (const url of this.createdObjectURLs) {
+			try {
+				URL.revokeObjectURL(url);
+				debugStats.dec('objectURLs');
+			} catch (e) {
+				// ignore
+			}
+		}
+		this.createdObjectURLs = [];
+
+		// Limpiar referencias a elementos del DOM para evitar fugas de memoria
+		this.bodyContainer = null;
+		this.wrapper = null;
+		this.currentPage = null;
+		this.document = null;
+		this.options = null;
+		this.styleMap = null;
+
+		// decrementar contador de instancias de renderer sync
+		debugStats.dec('rendererSyncInstances');
+
+		// Limpiar referencias de páginas y elementos actuales
+		this.currentPage = null;
+		this.currentPart = null;
+
+		// Limpiar arrays y mapas
+		this.tableVerticalMerges = [];
+		this.currentVerticalMerge = null;
+		this.tableCellPositions = [];
+		this.currentCellPosition = null;
+
+		this.footnoteMap = {};
+		this.endnoteMap = {};
+		this.currentFootnoteIds = [];
+		this.currentEndnoteIds = [];
+		this.usedHeaderFooterParts = [];
+
+		this.currentTabs = [];
 	}
 }
 

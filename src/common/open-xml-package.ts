@@ -10,25 +10,63 @@ export interface OpenXmlPackageOptions {
 //
 export class OpenXmlPackage {
     xmlParser: XmlParser = new XmlParser();
+    private _files: Record<string, Uint8Array> = {};
+    private _zip: JSZip | null = null;
 
-    constructor(private _zip: JSZip, public options: OpenXmlPackageOptions) {
+    constructor(public options: OpenXmlPackageOptions) {
+    }
+
+    private async loadAllFiles(zip: JSZip) {
+        const files = zip.files;
+        const promises = Object.keys(files).map(async (path) => {
+            const file = files[path];
+            if (!file.dir) {
+                this._files[normalizePath(path)] = await file.async('uint8array');
+            }
+        });
+        await Promise.all(promises);
+        // Keep zip for save/update
     }
 
     get(path: string): any {
-        return this._zip.files[normalizePath(path)];
+        return this._files[normalizePath(path)] ? { async: (type: JSZip.OutputType) => Promise.resolve(this.convertData(this._files[normalizePath(path)], type)) } : null;
+    }
+
+    private convertData(data: Uint8Array, type: JSZip.OutputType): any {
+        switch (type) {
+            case 'uint8array':
+                return data;
+            case 'string':
+                return new TextDecoder().decode(data);
+            case 'blob':
+                return new Blob([data as any]);
+            default:
+                return data;
+        }
     }
 
     update(path: string, content: any) {
-        this._zip.file(path, content);
+        if (this._zip) {
+            this._zip.file(path, content);
+        }
     }
 
     static async load(input: Blob | any, options: OpenXmlPackageOptions): Promise<OpenXmlPackage> {
-        const zip = await JSZip.loadAsync(input);
-		return new OpenXmlPackage(zip, options);
+        let arrayBuffer: ArrayBuffer;
+        if (input instanceof Blob) {
+            arrayBuffer = await input.arrayBuffer();
+        } else {
+            arrayBuffer = input;
+        }
+        const zip = await JSZip.loadAsync(arrayBuffer);
+        const pkg = new OpenXmlPackage(options);
+        pkg._zip = zip;
+        await pkg.loadAllFiles(zip);
+        return pkg;
     }
 
     save(type: any = "blob"): Promise<any>  {
-        return this._zip.generateAsync({ type });
+        return this._zip ? this._zip.generateAsync({ type }) : Promise.reject(new Error("Zip not loaded"));
     }
 
     load(path: string, type: JSZip.OutputType = "string"): Promise<any> {
