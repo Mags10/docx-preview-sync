@@ -317,6 +317,15 @@ export async function renderAsync(data: Blob | any, bodyContainer: HTMLElement, 
 	});
 }
 
+/**
+ * Limpia y libera todos los recursos asociados al contenedor proporcionado.
+ * Esto incluye revocar objectURLs, destruir renderers/stages, listeners y limpiar mapas internos.
+ * Útil para llamar explícitamente antes de vaciar el contenedor con `innerHTML = ''`.
+ */
+export async function cleanup(bodyContainer: HTMLElement, styleContainer: HTMLElement = null): Promise<void> {
+	return performCompleteCleanup(bodyContainer, styleContainer);
+}
+
 // Reemplaza el documento ya parseado (o parsea si se le pasa un Blob) en el contenedor
 // intentando reutilizar el renderer existente para evitar re-inicializaciones pesadas.
 // - newDocOrBlob: puede ser un WordDocument ya parseado o un Blob/raw como en renderAsync

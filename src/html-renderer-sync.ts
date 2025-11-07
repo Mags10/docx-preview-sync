@@ -100,6 +100,8 @@ export class HtmlRendererSync {
 	konva_stage: Stage;
 	// Konva框架--layer元素
 	konva_layer: Layer;
+    // Referencia al elemento contenedor creado para Konva (evitar id global)
+    private konvaContainerElement: HTMLElement = null;
 
 	// Lista de URLs creados con createObjectURL que necesitan ser revocados
 	private createdObjectURLs: string[] = [];
@@ -2369,13 +2371,15 @@ export class HtmlRendererSync {
 
 	// 生成Konva框架--元素
 	renderKonva() {
-		// 创建konva容器元素
+		// 创建konva容器元素 y mantener referencia en la instancia
 		const oContainer = createElement('div');
-		oContainer.id = 'konva-container';
+		oContainer.className = 'konva-container';
+		// Guardar referencia para eliminarla correctamente en dispose
+		this.konvaContainerElement = oContainer;
 		// 插入页面底部
 		appendChildren(this.bodyContainer, oContainer);
-		// 创建Stage元素
-		this.konva_stage = new Konva.Stage({ container: 'konva-container' });
+		// 创建Stage元素 usando el elemento directamente (no id global)
+		this.konva_stage = new Konva.Stage({ container: oContainer });
 		// contar konva stage creado
 		debugStats.inc('konvaStages');
 		// 创建Layer元素
@@ -2976,13 +2980,14 @@ export class HtmlRendererSync {
 		}
 
 		// AHORA remover el contenedor del DOM (después de destruir el Stage)
-		const konvaContainer = document.getElementById('konva-container');
+		const konvaContainer = this.konvaContainerElement;
 		if (konvaContainer) {
 			try {
 				konvaContainer.remove();
 			} catch (e) {
 				// ignore
 			}
+			this.konvaContainerElement = null;
 		}
 
 		// Revocar todos los URLs de objetos creados para liberar memoria

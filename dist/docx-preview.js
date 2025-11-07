@@ -5232,6 +5232,7 @@
             this.currentEndnoteIds = [];
             this.usedHeaderFooterParts = [];
             this.currentTabs = [];
+            this.konvaContainerElement = null;
             this.createdObjectURLs = [];
             this.activeTimeouts = 0;
             debugStats.inc('rendererSyncInstances');
@@ -6710,9 +6711,10 @@
         }
         renderKonva() {
             const oContainer = createElement('div');
-            oContainer.id = 'konva-container';
+            oContainer.className = 'konva-container';
+            this.konvaContainerElement = oContainer;
             appendChildren(this.bodyContainer, oContainer);
-            this.konva_stage = new Konva.Stage({ container: 'konva-container' });
+            this.konva_stage = new Konva.Stage({ container: oContainer });
             debugStats.inc('konvaStages');
             this.konva_layer = new Konva.Layer({ listening: false });
             this.konva_stage.add(this.konva_layer);
@@ -7176,13 +7178,14 @@
                 }
                 this.konva_layer = null;
             }
-            const konvaContainer = document.getElementById('konva-container');
+            const konvaContainer = this.konvaContainerElement;
             if (konvaContainer) {
                 try {
                     konvaContainer.remove();
                 }
                 catch (e) {
                 }
+                this.konvaContainerElement = null;
             }
             for (const url of this.createdObjectURLs) {
                 try {
@@ -7528,6 +7531,11 @@
             }));
         });
     }
+    function cleanup(bodyContainer_1) {
+        return __awaiter(this, arguments, void 0, function* (bodyContainer, styleContainer = null) {
+            return performCompleteCleanup(bodyContainer, styleContainer);
+        });
+    }
     function replaceParsedDocument(newDocOrBlob_1, bodyContainer_1) {
         return __awaiter(this, arguments, void 0, function* (newDocOrBlob, bodyContainer, styleContainer = null, sync = true, userOptions) {
             const ops = Object.assign(Object.assign({}, defaultOptions), userOptions);
@@ -7599,6 +7607,7 @@
         return debugStats.snapshot();
     }
 
+    exports.cleanup = cleanup;
     exports.defaultOptions = defaultOptions;
     exports.getDebugStats = getDebugStats;
     exports.parseAsync = parseAsync;
