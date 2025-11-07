@@ -550,6 +550,36 @@
         }
     }
 
+    const debugStats = (function () {
+        const counters = {};
+        function inc(name, by = 1) {
+            counters[name] = (counters[name] || 0) + by;
+            return counters[name];
+        }
+        function dec(name, by = 1) {
+            counters[name] = (counters[name] || 0) - by;
+            if (counters[name] <= 0)
+                counters[name] = 0;
+            return counters[name];
+        }
+        function get(name) {
+            return counters[name] || 0;
+        }
+        function snapshot() {
+            return Object.assign({}, counters);
+        }
+        function reset() {
+            Object.keys(counters).forEach(k => counters[k] = 0);
+        }
+        return {
+            inc,
+            dec,
+            get,
+            snapshot,
+            reset,
+        };
+    })();
+
     function parseBorder(elem, xml) {
         return {
             type: xml.attr(elem, "val"),
@@ -1547,6 +1577,7 @@
         static load(blob, parser, options) {
             return __awaiter(this, void 0, void 0, function* () {
                 var d = new WordDocument();
+                debugStats.inc('wordDocuments');
                 d._options = options;
                 d._parser = parser;
                 d._package = yield OpenXmlPackage.load(blob, options);
@@ -1565,6 +1596,9 @@
         setRenderer(renderer) {
             this._renderer = renderer;
         }
+        getRenderer() {
+            return this._renderer;
+        }
         dispose() {
             const renderer = this._renderer;
             this._renderer = null;
@@ -1577,11 +1611,13 @@
             for (const url of this.createdObjectURLs) {
                 try {
                     URL.revokeObjectURL(url);
+                    debugStats.dec('objectURLs');
                 }
                 catch (e) {
                 }
             }
             this.createdObjectURLs = [];
+            debugStats.dec('wordDocuments');
             this.documentPart = null;
             this.fontTablePart = null;
             this.numberingPart = null;
@@ -4044,6 +4080,7 @@
             this.usedHederFooterParts = [];
             this.currentTabs = [];
             this.tabsTimeout = 0;
+            debugStats.inc('rendererAsyncInstances');
         }
         render(document, bodyContainer, styleContainer = null, options) {
             var _a;
@@ -5104,6 +5141,7 @@
             if (this.konva_stage) {
                 this.konva_stage.destroy();
                 this.konva_stage = null;
+                debugStats.dec('konvaStages');
             }
             if (this.konva_layer) {
                 this.konva_layer.destroy();
@@ -5130,6 +5168,7 @@
             this.usedHederFooterParts = [];
             this.defaultTabSize = null;
             this.currentTabs = [];
+            debugStats.dec('rendererAsyncInstances');
         }
     }
     function createElement$1(tagName, props, children) {
@@ -5194,6 +5233,8 @@
             this.usedHeaderFooterParts = [];
             this.currentTabs = [];
             this.createdObjectURLs = [];
+            this.activeTimeouts = 0;
+            debugStats.inc('rendererSyncInstances');
         }
         render(document_1, bodyContainer_1) {
             return __awaiter(this, arguments, void 0, function* (document, bodyContainer, styleContainer = null, options) {
@@ -6672,6 +6713,7 @@
             oContainer.id = 'konva-container';
             appendChildren(this.bodyContainer, oContainer);
             this.konva_stage = new Konva.Stage({ container: 'konva-container' });
+            debugStats.inc('konvaStages');
             this.konva_layer = new Konva.Layer({ listening: false });
             this.konva_stage.add(this.konva_layer);
             this.konva_stage.visible(true);
@@ -6732,6 +6774,7 @@
                     const blob = (yield group.toBlob());
                     result = URL.createObjectURL(blob);
                     this.createdObjectURLs.push(result);
+                    debugStats.inc('objectURLs');
                 }
                 return result;
             });
@@ -7115,37 +7158,48 @@
             }
         }
         dispose() {
+            if (this.konva_stage) {
+                try {
+                    this.konva_stage.destroy();
+                    debugStats.dec('konvaStages');
+                }
+                catch (e) {
+                }
+                this.konva_stage = null;
+            }
             if (this.konva_layer) {
-                this.konva_layer.removeChildren();
-                this.konva_layer.destroy();
+                try {
+                    this.konva_layer.removeChildren();
+                    this.konva_layer.destroy();
+                }
+                catch (e) {
+                }
                 this.konva_layer = null;
             }
-            if (this.konva_stage) {
-                this.konva_stage.destroy();
-                this.konva_stage = null;
+            const konvaContainer = document.getElementById('konva-container');
+            if (konvaContainer) {
+                try {
+                    konvaContainer.remove();
+                }
+                catch (e) {
+                }
             }
             for (const url of this.createdObjectURLs) {
                 try {
                     URL.revokeObjectURL(url);
+                    debugStats.dec('objectURLs');
                 }
                 catch (e) {
                 }
             }
             this.createdObjectURLs = [];
-            if (this.wrapper && this.wrapper !== this.bodyContainer) {
-                while (this.wrapper.firstChild) {
-                    this.wrapper.removeChild(this.wrapper.firstChild);
-                }
-            }
-            const konvaContainer = document.getElementById('konva-container');
-            if (konvaContainer) {
-                konvaContainer.remove();
-            }
             this.bodyContainer = null;
             this.wrapper = null;
+            this.currentPage = null;
             this.document = null;
             this.options = null;
             this.styleMap = null;
+            debugStats.dec('rendererSyncInstances');
             this.currentPage = null;
             this.currentPart = null;
             this.tableVerticalMerges = [];
@@ -7312,6 +7366,7 @@
         useBase64URL: true,
         debug: false,
         experimental: false,
+        reuseRenderer: false,
     };
     function parseAsync(data, userOptions = null) {
         const ops = Object.assign(Object.assign({}, defaultOptions), userOptions);
@@ -7329,6 +7384,50 @@
     }
     const containerDocumentMap = new WeakMap();
     const containerRenderingLock = new WeakMap();
+    const containerThrottleState = new WeakMap();
+    const RENDER_THROTTLE_MS = 200;
+    function throttledRender(bodyContainer, renderFn) {
+        return __awaiter(this, void 0, void 0, function* () {
+            let throttleState = containerThrottleState.get(bodyContainer);
+            if (!throttleState) {
+                throttleState = {
+                    lastRenderTime: 0,
+                    pendingTimeout: null,
+                    pendingRequest: null,
+                    pendingResolvers: []
+                };
+                containerThrottleState.set(bodyContainer, throttleState);
+            }
+            const now = Date.now();
+            const timeSinceLastRender = now - throttleState.lastRenderTime;
+            const timeToWait = Math.max(0, RENDER_THROTTLE_MS - timeSinceLastRender);
+            throttleState.pendingRequest = renderFn;
+            return new Promise(resolve => {
+                throttleState.pendingResolvers.push(resolve);
+                if (throttleState.pendingTimeout) ;
+                else {
+                    throttleState.pendingTimeout = setTimeout(() => __awaiter(this, void 0, void 0, function* () {
+                        throttleState.lastRenderTime = Date.now();
+                        throttleState.pendingTimeout = null;
+                        const lastRequest = throttleState.pendingRequest;
+                        const allResolvers = throttleState.pendingResolvers;
+                        throttleState.pendingRequest = null;
+                        throttleState.pendingResolvers = [];
+                        if (lastRequest) {
+                            try {
+                                const result = yield lastRequest();
+                                allResolvers.forEach(resolver => resolver(result));
+                            }
+                            catch (e) {
+                                console.error('[throttledRender] Error during render:', e);
+                                throw e;
+                            }
+                        }
+                    }), timeToWait);
+                }
+            });
+        });
+    }
     function performCompleteCleanup(bodyContainer_1) {
         return __awaiter(this, arguments, void 0, function* (bodyContainer, styleContainer = null) {
             if (typeof window !== 'undefined' && window.gc) {
@@ -7339,8 +7438,18 @@
                 styleContainer.innerHTML = '';
             }
             const previousDoc = containerDocumentMap.get(bodyContainer);
-            if (previousDoc && typeof previousDoc.dispose === 'function') {
-                previousDoc.dispose();
+            if (previousDoc) {
+                const rendererToDispose = typeof previousDoc.getRenderer === 'function' ? previousDoc.getRenderer() : null;
+                if (rendererToDispose && typeof rendererToDispose.dispose === 'function') {
+                    try {
+                        rendererToDispose.dispose();
+                    }
+                    catch (e) {
+                    }
+                }
+                if (typeof previousDoc.dispose === 'function') {
+                    previousDoc.dispose();
+                }
             }
             containerDocumentMap.delete(bodyContainer);
             containerRenderingLock.delete(bodyContainer);
@@ -7353,62 +7462,150 @@
                     }
                 }
             }
-            if (typeof window !== 'undefined' && window.gc) {
+            const hasExplicitGC = typeof window !== 'undefined' && window.gc;
+            if (hasExplicitGC) {
                 window.gc();
+                yield new Promise(resolve => setTimeout(resolve, 0));
             }
-            yield new Promise(resolve => setTimeout(resolve, 0));
+            else {
+                yield new Promise(resolve => setTimeout(resolve, 50));
+            }
         });
     }
     function renderSync(data_1, bodyContainer_1) {
         return __awaiter(this, arguments, void 0, function* (data, bodyContainer, styleContainer = null, userOptions = null) {
-            const currentRendering = containerRenderingLock.get(bodyContainer);
-            if (currentRendering) {
-                yield currentRendering;
-            }
-            const renderingPromise = (() => __awaiter(this, void 0, void 0, function* () {
-                try {
-                    yield performCompleteCleanup(bodyContainer, styleContainer);
-                    const doc = yield parseAsync(data, userOptions);
-                    yield renderDocument(doc, bodyContainer, styleContainer, true, userOptions);
-                    containerDocumentMap.set(bodyContainer, doc);
-                    return doc;
+            return throttledRender(bodyContainer, () => __awaiter(this, void 0, void 0, function* () {
+                let lockPromise;
+                const currentRendering = containerRenderingLock.get(bodyContainer);
+                if (currentRendering) {
+                    lockPromise = currentRendering;
                 }
-                finally {
-                    containerRenderingLock.delete(bodyContainer);
-                }
-            }))();
-            containerRenderingLock.set(bodyContainer, renderingPromise);
-            return renderingPromise;
+                const renderingPromise = (() => __awaiter(this, void 0, void 0, function* () {
+                    if (lockPromise) {
+                        yield lockPromise;
+                    }
+                    try {
+                        yield performCompleteCleanup(bodyContainer, styleContainer);
+                        const doc = yield parseAsync(data, userOptions);
+                        yield renderDocument(doc, bodyContainer, styleContainer, true, userOptions);
+                        containerDocumentMap.set(bodyContainer, doc);
+                        return doc;
+                    }
+                    finally {
+                        containerRenderingLock.delete(bodyContainer);
+                    }
+                }))();
+                containerRenderingLock.set(bodyContainer, renderingPromise);
+                return renderingPromise;
+            }));
         });
     }
     function renderAsync(data, bodyContainer, styleContainer, userOptions) {
         return __awaiter(this, void 0, void 0, function* () {
-            const currentRendering = containerRenderingLock.get(bodyContainer);
-            if (currentRendering) {
-                yield currentRendering;
-            }
-            const renderingPromise = (() => __awaiter(this, void 0, void 0, function* () {
-                try {
-                    yield performCompleteCleanup(bodyContainer, styleContainer);
-                    const doc = yield parseAsync(data, userOptions);
-                    yield renderDocument(doc, bodyContainer, styleContainer, false, userOptions);
-                    containerDocumentMap.set(bodyContainer, doc);
-                    return doc;
+            return throttledRender(bodyContainer, () => __awaiter(this, void 0, void 0, function* () {
+                let lockPromise;
+                const currentRendering = containerRenderingLock.get(bodyContainer);
+                if (currentRendering) {
+                    lockPromise = currentRendering;
                 }
-                finally {
-                    containerRenderingLock.delete(bodyContainer);
-                }
-            }))();
-            containerRenderingLock.set(bodyContainer, renderingPromise);
-            return renderingPromise;
+                const renderingPromise = (() => __awaiter(this, void 0, void 0, function* () {
+                    if (lockPromise) {
+                        yield lockPromise;
+                    }
+                    try {
+                        yield performCompleteCleanup(bodyContainer, styleContainer);
+                        const doc = yield parseAsync(data, userOptions);
+                        yield renderDocument(doc, bodyContainer, styleContainer, false, userOptions);
+                        containerDocumentMap.set(bodyContainer, doc);
+                        return doc;
+                    }
+                    finally {
+                        containerRenderingLock.delete(bodyContainer);
+                    }
+                }))();
+                containerRenderingLock.set(bodyContainer, renderingPromise);
+                return renderingPromise;
+            }));
         });
+    }
+    function replaceParsedDocument(newDocOrBlob_1, bodyContainer_1) {
+        return __awaiter(this, arguments, void 0, function* (newDocOrBlob, bodyContainer, styleContainer = null, sync = true, userOptions) {
+            const ops = Object.assign(Object.assign({}, defaultOptions), userOptions);
+            const previousDoc = containerDocumentMap.get(bodyContainer);
+            let existingRenderer = null;
+            try {
+                if (previousDoc && typeof previousDoc.getRenderer === 'function') {
+                    existingRenderer = previousDoc.getRenderer();
+                    if (existingRenderer && typeof previousDoc.setRenderer === 'function') {
+                        try {
+                            previousDoc.setRenderer(null);
+                        }
+                        catch (e) { }
+                    }
+                }
+            }
+            catch (e) {
+            }
+            yield performCompleteCleanup(bodyContainer, styleContainer);
+            yield new Promise(resolve => setTimeout(resolve, 100));
+            let newDoc = null;
+            if (newDocOrBlob && typeof newDocOrBlob.save === 'function') {
+                newDoc = newDocOrBlob;
+            }
+            else {
+                newDoc = yield parseAsync(newDocOrBlob, userOptions);
+            }
+            if (previousDoc) {
+                try {
+                    if (typeof previousDoc.setRenderer === 'function') {
+                        previousDoc.setRenderer(null);
+                    }
+                }
+                catch (e) {
+                }
+                try {
+                    if (typeof previousDoc.dispose === 'function') {
+                        previousDoc.dispose();
+                    }
+                }
+                catch (e) {
+                }
+                containerDocumentMap.delete(bodyContainer);
+            }
+            const allowReuse = (ops === null || ops === void 0 ? void 0 : ops.reuseRenderer) === true;
+            let renderer = null;
+            if (allowReuse && existingRenderer) {
+                renderer = existingRenderer;
+                console.warn('replaceParsedDocument: reutilizando renderer (experimental)');
+            }
+            else {
+                if (existingRenderer && typeof existingRenderer.dispose === 'function') {
+                    try {
+                        existingRenderer.dispose();
+                    }
+                    catch (e) { }
+                }
+                renderer = sync ? new HtmlRendererSync() : new HtmlRenderer();
+            }
+            if (newDoc && typeof newDoc.setRenderer === 'function') {
+                newDoc.setRenderer(renderer);
+            }
+            yield renderer.render(newDoc, bodyContainer, styleContainer, ops);
+            containerDocumentMap.set(bodyContainer, newDoc);
+            return newDoc;
+        });
+    }
+    function getDebugStats() {
+        return debugStats.snapshot();
     }
 
     exports.defaultOptions = defaultOptions;
+    exports.getDebugStats = getDebugStats;
     exports.parseAsync = parseAsync;
     exports.renderAsync = renderAsync;
     exports.renderDocument = renderDocument;
     exports.renderSync = renderSync;
+    exports.replaceParsedDocument = replaceParsedDocument;
 
 }));
 //# sourceMappingURL=docx-preview.js.map

@@ -1,0 +1,152 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>docx-preview - Replace / Inject demo</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.min.js"></script>
+    <!-- dependencies -->
+    <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/lodash@4.17.21/lodash.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/konva@9.3.6/konva.min.js"></script>
+    <!-- library -->
+    <script src="./js/docx-preview.js"></script>
+    <style>
+      body { height: 100vh; display:flex; flex-direction:column; }
+      #document-container { overflow:auto; flex:1; border:1px solid #ddd; padding:1rem; }
+      #style-container { display:none; }
+    </style>
+  </head>
+  <body class="p-3">
+    <h4>Demo: reemplazo dinámico (inject) de documento</h4>
+
+  <div class="row g-2 align-items-center mb-3">
+      <div class="col-auto">
+        <label class="form-label">Documento inicial</label>
+        <input id="initialFile" type="file" accept=".docx" class="form-control" />
+      </div>
+      <div class="col-auto">
+        <button id="loadInitial" class="btn btn-primary mt-4">Cargar</button>
+      </div>
+      <div class="col-auto">
+        <label class="form-label">Nuevo documento (inject)</label>
+        <input id="injectFile" type="file" accept=".docx" class="form-control" />
+      </div>
+      <div class="col-auto">
+        <div class="form-check mt-4">
+          <input class="form-check-input" type="checkbox" id="reuseRenderer">
+          <label class="form-check-label" for="reuseRenderer">Reutilizar renderer (experimental)</label>
+        </div>
+      </div>
+      <div class="col-auto">
+        <button id="injectButton" class="btn btn-success mt-4">Injectar (reemplazar)</button>
+      </div>
+      <div class="col-auto">
+        <button id="forceNewRendererButton" class="btn btn-warning mt-4">Forzar nuevo renderer</button>
+      </div>
+      <div class="col-auto">
+        <div id="status" class="mt-4 text-muted small">Estado: esperando acción</div>
+      </div>
+    </div>
+
+    <div class="row">
+      <div id="style-container"></div>
+      <div id="document-container" class="col">Cargue un documento para comenzar.</div>
+    </div>
+
+    <script>
+      const documentContainer = document.getElementById('document-container');
+      const styleContainer = document.getElementById('style-container');
+      const initialFile = document.getElementById('initialFile');
+      const injectFile = document.getElementById('injectFile');
+      const loadInitial = document.getElementById('loadInitial');
+      const injectButton = document.getElementById('injectButton');
+      const status = document.getElementById('status');
+
+      const options = Object.assign({}, docx.defaultOptions, { debug: true });
+
+      let currentBlob = null;
+
+      async function loadAndRender(file) {
+        if (!file) return;
+        status.textContent = 'Estado: parseando y renderizando documento inicial...';
+        currentBlob = file;
+        // Usar renderSync (el demo index.html usa renderSync y las imágenes cargan bien allí)
+        await docx.renderSync(file, documentContainer, styleContainer, options);
+        status.textContent = 'Estado: documento inicial renderizado';
+      }
+
+      loadInitial.addEventListener('click', () => loadAndRender(initialFile.files[0]));
+
+      // función helper que intentará usar la nueva API replaceParsedDocument si está disponible;
+      // en caso contrario hace un fallback simple usando renderAsync (recarga completa)
+      async function injectReplace(newFile) {
+        if (!newFile) return;
+
+        // Si la API replaceParsedDocument existe en el build, la usamos para intentar
+        // reemplazar el documento reutilizando el renderer (si está implementado)
+        if (docx.replaceParsedDocument && typeof docx.replaceParsedDocument === 'function') {
+              const reuse = document.getElementById('reuseRenderer').checked;
+              if (reuse && docx.replaceParsedDocument && typeof docx.replaceParsedDocument === 'function') {
+                status.textContent = 'Estado: inyectando usando replaceParsedDocument (reutilizar renderer)...';
+                try {
+                  await docx.replaceParsedDocument(newFile, documentContainer, styleContainer, /*sync=*/ false, options);
+                  status.textContent = 'Estado: documento inyectado (replaceParsedDocument)';
+                  console.log('replaceParsedDocument used (reuse renderer)');
+                  return;
+                } catch (err) {
+                  console.error('replaceParsedDocument falló:', err);
+                  status.textContent = 'Estado: replaceParsedDocument falló, realizando fallback...';
+                }
+              }
+
+              // Si no se desea reutilizar o replace no está disponible, usar renderSync
+              status.textContent = 'Estado: inyectando usando renderSync (nuevo renderer)...';
+              console.log('renderSync used (new renderer)');
+              await docx.renderSync(newFile, documentContainer, styleContainer, options);
+              status.textContent = 'Estado: documento inyectado (renderSync)';
+              return;
+        }
+
+        // Fallback: renderAsync (recarga completa del contenedor)
+        status.textContent = 'Estado: inyectando usando fallback (renderAsync)...';
+        await docx.renderAsync(newFile, documentContainer, styleContainer, options);
+        status.textContent = 'Estado: documento inyectado (fallback)';
+      }
+
+      injectButton.addEventListener('click', async () => {
+        const f = injectFile.files[0];
+        if (!f) {
+          alert('Selecciona el .docx que quieres inyectar como reemplazo');
+          return;
+        }
+        await injectReplace(f);
+      });
+
+      // boton para forzar render con nuevo renderer (útil para comparar)
+      document.getElementById('forceNewRendererButton').addEventListener('click', async () => {
+        const f = injectFile.files[0] || initialFile.files[0];
+        if (!f) { alert('Selecciona un .docx en "Nuevo documento" o "Documento inicial"'); return; }
+        status.textContent = 'Estado: forzando nuevo renderer (renderSync)...';
+        await docx.renderSync(f, documentContainer, styleContainer, options);
+        status.textContent = 'Estado: re-render con nuevo renderer completado';
+      });
+
+      // soportar drop para inyectar
+      documentContainer.addEventListener('dragover', e => e.preventDefault());
+      documentContainer.addEventListener('drop', async e => {
+        e.preventDefault();
+        const f = e.dataTransfer.files[0];
+        if (f) {
+          // si se mantiene pulsado shift se interpreta como "inject", si no como load inicial
+          if (e.shiftKey) {
+            await injectReplace(f);
+          } else {
+            await loadAndRender(f);
+          }
+        }
+      });
+    </script>
+  </body>
+</html>

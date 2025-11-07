@@ -8,6 +8,7 @@ import { FontTablePart } from './font-table/font-table';
 import { OpenXmlPackage } from './common/open-xml-package';
 import { DocumentPart } from './document/document-part';
 import { blobToBase64, resolvePath, splitPath } from './utils';
+import { debugStats } from './debug-stats';
 import { NumberingPart } from './numbering/numbering-part';
 import { StylesPart } from './styles/styles-part';
 import { FooterPart, HeaderPart } from "./header-footer/parts";
@@ -56,6 +57,8 @@ export class WordDocument {
 
 	static async load(blob: Blob | any, parser: DocumentParser, options: any): Promise<WordDocument> {
 		var d = new WordDocument();
+		// contar instancia creada
+		debugStats.inc('wordDocuments');
 
 		d._options = options;
 		d._parser = parser;
@@ -80,6 +83,12 @@ export class WordDocument {
 		this._renderer = renderer;
 	}
 
+	// Obtener el renderer asociado (puede ser null). Añadido para permitir reutilizar el renderer
+	// existente cuando se reemplaza el documento en caliente.
+	getRenderer(): any {
+		return this._renderer;
+	}
+
 	dispose() {
 		// PASO 1: Limpiar referencia al renderer primero para romper el ciclo
 		const renderer = this._renderer;
@@ -99,11 +108,16 @@ export class WordDocument {
 		for (const url of this.createdObjectURLs) {
 			try {
 				URL.revokeObjectURL(url);
+				debugStats.dec('objectURLs');
 			} catch (e) {
 				// Ignorar errores si el URL ya fue revocado
 			}
 		}
+		// decrementar contador por lo que había
 		this.createdObjectURLs = [];
+
+		// decrementar contador de documentos vivos
+		debugStats.dec('wordDocuments');
 
 		// PASO 5: Limpiar todas las referencias de partes específicas
 		this.documentPart = null;

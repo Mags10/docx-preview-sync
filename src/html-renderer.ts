@@ -38,6 +38,7 @@ import Konva from 'konva';
 import type { Stage } from 'konva/lib/Stage';
 import type { Layer } from 'konva/lib/Layer';
 import type { Group } from 'konva/lib/Group';
+import { debugStats } from './debug-stats';
 
 const ns = {
 	html: 'http://www.w3.org/1999/xhtml',
@@ -97,6 +98,10 @@ export class HtmlRenderer {
 	konva_stage: Stage;
 	// Konva框架--layer元素
 	konva_layer: Layer;
+
+	constructor() {
+		debugStats.inc('rendererAsyncInstances');
+	}
 
 	/**
 	 * Object对象 => HTML标签
@@ -1638,6 +1643,7 @@ export class HtmlRenderer {
 		if (this.konva_stage) {
 			this.konva_stage.destroy();
 			this.konva_stage = null;
+			debugStats.dec('konvaStages');
 		}
 		if (this.konva_layer) {
 			this.konva_layer.destroy();
@@ -1668,6 +1674,9 @@ export class HtmlRenderer {
 		this.usedHederFooterParts = [];
 		this.defaultTabSize = null;
 		this.currentTabs = [];
+
+		// decrementar contador de instancias de renderer asíncrono
+		debugStats.dec('rendererAsyncInstances');
 	}
 
 }
