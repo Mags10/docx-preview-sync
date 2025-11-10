@@ -4405,7 +4405,11 @@
             }
         }
         processTable(table) {
+            if (!table.children)
+                return;
             for (let r of table.children) {
+                if (!r.children)
+                    continue;
                 for (let c of r.children) {
                     c.cssStyle = this.copyStyleProperties(table.cellStyle, c.cssStyle, [
                         "border-left", "border-right", "border-top", "border-bottom",
@@ -4632,7 +4636,7 @@
         }
         renderElements(elems, parent) {
             if (elems == null) {
-                return null;
+                return [];
             }
             let result = [];
             for (let i = 0; i < elems.length; i++) {
@@ -4985,42 +4989,44 @@
         renderVmlChildElement(elem) {
             const result = createSvgElement$1(elem.tagName);
             Object.entries(elem.attrs).forEach(([k, v]) => result.setAttribute(k, v));
-            for (let child of elem.children) {
-                if (child.type == DomType.VmlElement) {
-                    result.appendChild(this.renderVmlChildElement(child));
-                }
-                else {
-                    result.append(...asArray(this.renderElement(child)));
+            if (elem.children) {
+                for (let child of elem.children) {
+                    if (child.type == DomType.VmlElement) {
+                        result.appendChild(this.renderVmlChildElement(child));
+                    }
+                    else {
+                        result.append(...asArray(this.renderElement(child)));
+                    }
                 }
             }
             return result;
         }
         renderMmlRadical(elem) {
-            var _a;
-            const base = elem.children.find(el => el.type == DomType.MmlBase);
-            if ((_a = elem.props) === null || _a === void 0 ? void 0 : _a.hideDegree) {
+            var _a, _b, _c;
+            const base = (_a = elem.children) === null || _a === void 0 ? void 0 : _a.find(el => el.type == DomType.MmlBase);
+            if ((_b = elem.props) === null || _b === void 0 ? void 0 : _b.hideDegree) {
                 return createElementNS$1(ns$1.mathML, "msqrt", null, this.renderElements([base]));
             }
-            const degree = elem.children.find(el => el.type == DomType.MmlDegree);
+            const degree = (_c = elem.children) === null || _c === void 0 ? void 0 : _c.find(el => el.type == DomType.MmlDegree);
             return createElementNS$1(ns$1.mathML, "mroot", null, this.renderElements([base, degree]));
         }
         renderMmlDelimiter(elem) {
-            var _a, _b;
+            var _a, _b, _c;
             const children = [];
             children.push(createElementNS$1(ns$1.mathML, "mo", null, [(_a = elem.props.beginChar) !== null && _a !== void 0 ? _a : '(']));
-            children.push(...this.renderElements(elem.children));
-            children.push(createElementNS$1(ns$1.mathML, "mo", null, [(_b = elem.props.endChar) !== null && _b !== void 0 ? _b : ')']));
+            children.push(...this.renderElements((_b = elem.children) !== null && _b !== void 0 ? _b : []));
+            children.push(createElementNS$1(ns$1.mathML, "mo", null, [(_c = elem.props.endChar) !== null && _c !== void 0 ? _c : ')']));
             return createElementNS$1(ns$1.mathML, "mrow", null, children);
         }
         renderMmlNary(elem) {
-            var _a, _b;
+            var _a, _b, _c, _d, _e;
             const children = [];
-            const grouped = ___namespace.keyBy(elem.children, 'type');
+            const grouped = ___namespace.keyBy((_a = elem.children) !== null && _a !== void 0 ? _a : [], 'type');
             const sup = grouped[DomType.MmlSuperArgument];
             const sub = grouped[DomType.MmlSubArgument];
             const supElem = sup ? createElementNS$1(ns$1.mathML, "mo", null, asArray(this.renderElement(sup))) : null;
             const subElem = sub ? createElementNS$1(ns$1.mathML, "mo", null, asArray(this.renderElement(sub))) : null;
-            const charElem = createElementNS$1(ns$1.mathML, "mo", null, [(_b = (_a = elem.props) === null || _a === void 0 ? void 0 : _a.char) !== null && _b !== void 0 ? _b : '\u222B']);
+            const charElem = createElementNS$1(ns$1.mathML, "mo", null, [(_c = (_b = elem.props) === null || _b === void 0 ? void 0 : _b.char) !== null && _c !== void 0 ? _c : '\u222B']);
             if (supElem || subElem) {
                 children.push(createElementNS$1(ns$1.mathML, "munderover", null, [charElem, subElem, supElem]));
             }
@@ -5033,19 +5039,20 @@
             else {
                 children.push(charElem);
             }
-            children.push(...this.renderElements(grouped[DomType.MmlBase].children));
+            children.push(...this.renderElements((_e = (_d = grouped[DomType.MmlBase]) === null || _d === void 0 ? void 0 : _d.children) !== null && _e !== void 0 ? _e : []));
             return createElementNS$1(ns$1.mathML, "mrow", null, children);
         }
         renderMmlPreSubSuper(elem) {
+            var _a, _b, _c;
             const children = [];
-            const grouped = ___namespace.keyBy(elem.children, 'type');
+            const grouped = ___namespace.keyBy((_a = elem.children) !== null && _a !== void 0 ? _a : [], 'type');
             const sup = grouped[DomType.MmlSuperArgument];
             const sub = grouped[DomType.MmlSubArgument];
             const supElem = sup ? createElementNS$1(ns$1.mathML, "mo", null, asArray(this.renderElement(sup))) : null;
             const subElem = sub ? createElementNS$1(ns$1.mathML, "mo", null, asArray(this.renderElement(sub))) : null;
             const stubElem = createElementNS$1(ns$1.mathML, "mo", null);
             children.push(createElementNS$1(ns$1.mathML, "msubsup", null, [stubElem, subElem, supElem]));
-            children.push(...this.renderElements(grouped[DomType.MmlBase].children));
+            children.push(...this.renderElements((_c = (_b = grouped[DomType.MmlBase]) === null || _b === void 0 ? void 0 : _b.children) !== null && _c !== void 0 ? _c : []));
             return createElementNS$1(ns$1.mathML, "mrow", null, children);
         }
         renderMmlGroupChar(elem) {
@@ -6022,6 +6029,9 @@
         renderElements(children, parent) {
             return __awaiter(this, void 0, void 0, function* () {
                 var _a, _b;
+                if (!children || children.length === 0) {
+                    return Overflow.FALSE;
+                }
                 let overflows = [];
                 let pages = this.document.documentPart.body.pages;
                 let { pageId, sectProps, children: current_page_children } = this.currentPage;

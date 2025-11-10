@@ -600,7 +600,9 @@ export class HtmlRenderer {
 
 	// 表格style样式
 	processTable(table: WmlTable) {
+		if (!table.children) return;
 		for (let r of table.children) {
+			if (!r.children) continue;
 			for (let c of r.children) {
 				c.cssStyle = this.copyStyleProperties(table.cellStyle, c.cssStyle, [
 					"border-left", "border-right", "border-top", "border-bottom",
@@ -958,7 +960,7 @@ export class HtmlRenderer {
 	// 渲染多元素，
 	renderElements(elems: OpenXmlElement[], parent?: HTMLElement): Node[] {
 		if (elems == null) {
-			return null;
+			return [];
 		}
 
 		let result: Node[] = [];
@@ -1444,11 +1446,13 @@ export class HtmlRenderer {
 		const result = createSvgElement(elem.tagName as any);
 		Object.entries(elem.attrs).forEach(([k, v]) => result.setAttribute(k, v));
 
-		for (let child of elem.children) {
-			if (child.type == DomType.VmlElement) {
-				result.appendChild(this.renderVmlChildElement(child as VmlElement));
-			} else {
-				result.append(...asArray(this.renderElement(child as any)));
+		if (elem.children) {
+			for (let child of elem.children) {
+				if (child.type == DomType.VmlElement) {
+					result.appendChild(this.renderVmlChildElement(child as VmlElement));
+				} else {
+					result.append(...asArray(this.renderElement(child as any)));
+				}
 			}
 		}
 
@@ -1456,13 +1460,13 @@ export class HtmlRenderer {
 	}
 
 	renderMmlRadical(elem: OpenXmlElement): HTMLElement {
-		const base = elem.children.find(el => el.type == DomType.MmlBase);
+		const base = elem.children?.find(el => el.type == DomType.MmlBase);
 
 		if (elem.props?.hideDegree) {
 			return createElementNS(ns.mathML, "msqrt", null, this.renderElements([base]));
 		}
 
-		const degree = elem.children.find(el => el.type == DomType.MmlDegree);
+		const degree = elem.children?.find(el => el.type == DomType.MmlDegree);
 		return createElementNS(ns.mathML, "mroot", null, this.renderElements([base, degree]));
 	}
 
@@ -1470,7 +1474,7 @@ export class HtmlRenderer {
 		const children = [];
 
 		children.push(createElementNS(ns.mathML, "mo", null, [elem.props.beginChar ?? '(']));
-		children.push(...this.renderElements(elem.children));
+		children.push(...this.renderElements(elem.children ?? []));
 		children.push(createElementNS(ns.mathML, "mo", null, [elem.props.endChar ?? ')']));
 
 		return createElementNS(ns.mathML, "mrow", null, children);
@@ -1478,7 +1482,7 @@ export class HtmlRenderer {
 
 	renderMmlNary(elem: OpenXmlElement): HTMLElement {
 		const children = [];
-		const grouped = _.keyBy(elem.children, 'type');
+		const grouped = _.keyBy(elem.children ?? [], 'type');
 
 		const sup = grouped[DomType.MmlSuperArgument];
 		const sub = grouped[DomType.MmlSubArgument];
@@ -1498,14 +1502,14 @@ export class HtmlRenderer {
 			children.push(charElem);
 		}
 
-		children.push(...this.renderElements(grouped[DomType.MmlBase].children));
+		children.push(...this.renderElements(grouped[DomType.MmlBase]?.children ?? []));
 
 		return createElementNS(ns.mathML, "mrow", null, children);
 	}
 
 	renderMmlPreSubSuper(elem: OpenXmlElement) {
 		const children = [];
-		const grouped = _.keyBy(elem.children, 'type');
+		const grouped = _.keyBy(elem.children ?? [], 'type');
 
 		const sup = grouped[DomType.MmlSuperArgument];
 		const sub = grouped[DomType.MmlSubArgument];
@@ -1514,7 +1518,7 @@ export class HtmlRenderer {
 		const stubElem = createElementNS(ns.mathML, "mo", null);
 
 		children.push(createElementNS(ns.mathML, "msubsup", null, [stubElem, subElem, supElem]));
-		children.push(...this.renderElements(grouped[DomType.MmlBase].children));
+		children.push(...this.renderElements(grouped[DomType.MmlBase]?.children ?? []));
 
 		return createElementNS(ns.mathML, "mrow", null, children);
 	}

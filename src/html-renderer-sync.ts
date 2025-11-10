@@ -1348,6 +1348,11 @@ export class HtmlRendererSync {
 
 	// 根据XML对象渲染出多元素
 	async renderElements(children: OpenXmlElement[], parent: HTMLElement | Element | Text): Promise<Overflow> {
+		// Si children es null o undefined, retornar como no overflow
+		if (!children || children.length === 0) {
+			return Overflow.FALSE;
+		}
+
 		// 子元素溢出状态的数组
 		let overflows: Overflow[] = [];
 		// 已拆分的Pages数组
